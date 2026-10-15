@@ -80,7 +80,8 @@ On first launch the app:
    Ghostty asks first if a command is still running.
 2. Asks for **Accessibility** access, to stack Ghostty's windows in one spot and to move
    them with the grab bar. Until it's granted, the sidebar shows a notice at the top and
-   the grab bar asks for it instead of moving anything.
+   the grab bar asks for it instead of moving anything. macOS only applies the permission
+   after the app restarts, so once it's on, click **Relaunch** in the notice.
 3. Asks to **control Ghostty** (Automation), to read the window list and switch windows.
 
 Grant both in System Settings › Privacy & Security.

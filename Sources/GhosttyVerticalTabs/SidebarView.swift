@@ -118,8 +118,9 @@ struct SidebarView: View {
             if model.needsAccessibility && !model.needsAutomation {
                 Notice(
                     title: "Allow Accessibility",
-                    text: "Needed to move the terminal with the grab bar and stack Ghostty's windows. Turn on Ghostty Vertical Tabs in System Settings › Privacy & Security › Accessibility. If it's already on, remove it with – and add it again.",
-                    settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                    text: "Needed to move the terminal with the grab bar and stack Ghostty's windows. Turn on Ghostty Vertical Tabs in System Settings › Privacy & Security › Accessibility, then relaunch. If it's already on, remove it with – and add it again.",
+                    settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+                    showsRelaunch: true
                 )
                 Divider()
             }
@@ -272,6 +273,7 @@ private struct Notice: View {
     let title: String
     let text: String
     let settingsURL: String
+    var showsRelaunch = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -280,13 +282,28 @@ private struct Notice: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Open Settings") {
-                if let url = URL(string: settingsURL) { NSWorkspace.shared.open(url) }
+            HStack(spacing: 6) {
+                Button("Open Settings") {
+                    if let url = URL(string: settingsURL) { NSWorkspace.shared.open(url) }
+                }
+                if showsRelaunch {
+                    // macOS only applies a newly granted Accessibility permission after a restart.
+                    Button("Relaunch", action: relaunch)
+                }
             }
             .controlSize(.small)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Starts a new copy once this one has quit, so the two never run side by side.
+    private func relaunch() {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 0.5; /usr/bin/open -n \"$0\"", Bundle.main.bundlePath]
+        try? task.run()
+        NSApp.terminate(nil)
     }
 }
 
