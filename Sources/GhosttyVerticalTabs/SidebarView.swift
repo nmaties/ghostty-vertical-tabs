@@ -13,10 +13,6 @@ final class TabsModel: ObservableObject {
     @Published private(set) var selectedID: String?
     @Published private(set) var needsAutomation = false
     @Published var needsAccessibility = !WindowStacker.isTrusted
-    @Published private(set) var renamingID: String?
-
-    /// Called when renaming starts or ends, so the panel can take and give back the keyboard.
-    var onRenamingChanged: ((Bool) -> Void)?
     /// Called while the grab bar is dragged.
     var onDrag: ((DragPhase) -> Void)?
 
@@ -91,26 +87,10 @@ final class TabsModel: ObservableObject {
         perform { try Ghostty.close(windowID: id) }
     }
 
-    func beginRename(_ tab: GhosttyTab) {
-        renamingID = tab.id
-        onRenamingChanged?(true)
-    }
-
-    func commitRename(_ tab: GhosttyTab, to title: String) {
+    func rename(_ tab: GhosttyTab) {
+        selectedID = tab.id
         let id = tab.id
-        let title = title.trimmingCharacters(in: .whitespaces)
-        endRename()
-        perform { try Ghostty.rename(windowID: id, to: title) }
-    }
-
-    func cancelRename() {
-        endRename()
-    }
-
-    private func endRename() {
-        guard renamingID != nil else { return }
-        renamingID = nil
-        onRenamingChanged?(false)
+        perform { try Ghostty.promptRename(windowID: id) }
     }
 
     func newTab() {
@@ -148,12 +128,9 @@ struct SidebarView: View {
                                 tab: tab,
                                 number: index + 1,
                                 selected: tab.id == model.selectedID,
-                                renaming: tab.id == model.renamingID,
                                 onSelect: { model.select(tab) },
                                 onClose: { model.close(tab) },
-                                onRename: { model.beginRename(tab) },
-                                onCommitRename: { model.commitRename(tab, to: $0) },
-                                onCancelRename: { model.cancelRename() }
+                                onRename: { model.rename(tab) }
                             )
                         }
                     }
@@ -189,15 +166,10 @@ private struct TabRow: View {
     let tab: GhosttyTab
     let number: Int
     let selected: Bool
-    let renaming: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     let onRename: () -> Void
-    let onCommitRename: (String) -> Void
-    let onCancelRename: () -> Void
     @State private var hovering = false
-    @State private var draft = ""
-    @FocusState private var fieldFocused: Bool
 
     private var folder: String {
         guard !tab.directory.isEmpty else { return "" }
@@ -209,26 +181,10 @@ private struct TabRow: View {
     var body: some View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
-                if renaming {
-                    TextField("Tab name", text: $draft)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, weight: .semibold))
-                        .focused($fieldFocused)
-                        .onSubmit { onCommitRename(draft) }
-                        .onExitCommand(perform: onCancelRename)
-                        .onAppear {
-                            draft = tab.title
-                            fieldFocused = true
-                        }
-                        .onChange(of: fieldFocused) { focused in
-                            if !focused { onCancelRename() }
-                        }
-                } else {
-                    Text(tab.title.isEmpty ? "Tab \(number)" : tab.title)
-                        .font(.system(size: 12, weight: selected ? .semibold : .regular))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                Text(tab.title.isEmpty ? "Tab \(number)" : tab.title)
+                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 if !folder.isEmpty, !tab.title.hasSuffix(folder) {
                     Text(folder)
                         .font(.system(size: 10))
@@ -256,8 +212,10 @@ private struct TabRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         // The single tap fires right away, so switching never waits for a possible double click.
-        .gesture(TapGesture(count: 2).onEnded { if !renaming { onRename() } })
-        .simultaneousGesture(TapGesture().onEnded { if !renaming { onSelect() } })
+        .gesture(TapGesture(count: 2).onEnded(onRename))
+        .simultaneousGesture(TapGesture().onEnded {
+            if (NSApp.currentEvent?.clickCount ?? 1) < 2 { onSelect() }
+        })
         .help("\(tab.directory)\nDouble-click to rename")
     }
 }

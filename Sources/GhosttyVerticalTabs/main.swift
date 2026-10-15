@@ -8,9 +8,7 @@ enum DockSide: String {
 
 /// A panel that takes clicks without pulling focus away from Ghostty.
 final class SidebarPanel: NSPanel {
-    /// Only take the keyboard while a tab is being renamed.
-    var allowsKey = false
-    override var canBecomeKey: Bool { allowsKey }
+    override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
@@ -54,19 +52,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = ClickThroughHostingView(rootView: SidebarView(model: model))
         model.onDrag = { [weak self] phase in
             MainActor.assumeIsolated { self?.drag(phase) }
-        }
-        model.onRenamingChanged = { [weak self] renaming in
-            guard let self else { return }
-            panel.allowsKey = renaming
-            if renaming {
-                panel.makeKey()
-            } else {
-                panel.resignKey()
-                // Hand the keyboard back to the terminal.
-                if let id = model.selectedID {
-                    Ghostty.scriptQueue.async { try? Ghostty.activate(windowID: id) }
-                }
-            }
         }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

@@ -90,12 +90,14 @@ enum Ghostty {
         """)
     }
 
-    /// Overrides the window's title. An empty title goes back to the one the shell sets.
-    static func rename(windowID: String, to title: String) throws {
-        let oneLine = title.replacingOccurrences(of: "\n", with: " ")
+    /// Brings the window forward and opens Ghostty's own "Change Tab Title" dialog on it.
+    /// Ghostty keeps the name it saves even when the shell later sets a title.
+    static func promptRename(windowID: String) throws {
         _ = try run("""
         tell application id "\(bundleID)"
-            perform action "set_tab_title:\(escape(oneLine))" on focused terminal of selected tab of window id "\(escape(windowID))"
+            activate window (window id "\(escape(windowID))")
+            activate
+            perform action "prompt_tab_title" on focused terminal of selected tab of window id "\(escape(windowID))"
         end tell
         """)
     }
