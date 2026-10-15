@@ -146,8 +146,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try Ghostty.setHidesTitlebar(hide)
         } catch {
             NSAlert(error: error).runModal()
+            return
         }
         buildMenu()
+        offerToReopenWindows(titlebarHidden: hide)
+    }
+
+    /// Ghostty only applies a title bar change to new windows, so the windows already open
+    /// would keep the old look until reopened.
+    private func offerToReopenWindows(titlebarHidden: Bool) {
+        guard Ghostty.runningApp != nil else { return }
+        // On first launch the sidebar hasn't loaded yet, so ask Ghostty. It lists windows
+        // front to back; reversed, that's roughly the order they were opened in.
+        let ids = model.tabs.isEmpty
+            ? ((try? Ghostty.state())?.tabs.map(\.id).reversed() ?? [])
+            : model.tabs.map(\.id)
+        guard !ids.isEmpty else { return }
+        let alert = NSAlert()
+        alert.messageText = "Reopen your Ghostty windows?"
+        alert.informativeText = """
+        Ghostty only applies the title bar change to new windows. Reopen your \(ids.count) \
+        \(ids.count == 1 ? "window" : "windows") in the same \(ids.count == 1 ? "folder" : "folders") \
+        now so \(titlebarHidden ? "the title bar goes away" : "the title bar comes back")?
+
+        Anything running in them stops. Ghostty asks first if a command is still running.
+        """
+        alert.addButton(withTitle: "Reopen Windows")
+        alert.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Ghostty.scriptQueue.async {
+            try? Ghostty.reopen(windowIDs: ids)
+            DispatchQueue.main.async { MainActor.assumeIsolated { self.model.refresh() } }
+        }
     }
 
     private func refreshTabsIfVisible() {
@@ -211,24 +242,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let mover = StackMover()
     private var dragStart: CGRect?
+    /// Set when the title bar is visible: windows aren't stacked, so only the front one moves.
+    private var dragSingleWindow: AXUIElement?
 
-    /// Moves the stacked terminal windows, and the sidebar with them, while the grab bar is dragged.
+    /// Moves the terminal, and the sidebar with it, while the grab bar is dragged.
     /// The sidebar moves right away; the windows move on a background queue that only ever
     /// applies the latest position.
     private func drag(_ phase: DragPhase) {
         switch phase {
         case .began:
-            dragStart = anchor ?? WindowStacker.focusedWindow()?.frame
+            guard WindowStacker.isTrusted else {
+                // Moving windows needs Accessibility. Ask, and show the notice in the sidebar.
+                WindowStacker.requestTrust()
+                model.needsAccessibility = true
+                return
+            }
+            guard let focused = WindowStacker.focusedWindow() else { return }
+            if Ghostty.hidesTitlebar {
+                dragStart = anchor ?? focused.frame
+                dragSingleWindow = nil
+            } else {
+                dragStart = focused.frame
+                dragSingleWindow = focused.element
+            }
         case .moved(let offset):
             guard let dragStart else { return }
             let frame = dragStart.offsetBy(dx: offset.width, dy: offset.height)
-            anchor = frame
-            mover.moveAll(to: frame)
+            if let window = dragSingleWindow {
+                WindowStacker.move(window, to: frame)
+            } else {
+                anchor = frame
+                mover.moveAll(to: frame)
+            }
             let screen = NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main
             place(beside: frame, on: screen)
         case .ended:
+            if dragSingleWindow == nil, dragStart != nil, let anchor { mover.moveAll(to: anchor) }
             dragStart = nil
-            if let anchor { mover.moveAll(to: anchor) }
+            dragSingleWindow = nil
         }
     }
 

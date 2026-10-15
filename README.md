@@ -57,7 +57,13 @@ On first launch the app:
    option itself. Ghostty applies the title bar change to new windows, so open a fresh window
    (or restart Ghostty) afterwards. When you update the app, it brings this block up to date
    on its next launch.
-2. Asks for **Accessibility** access, to stack Ghostty's windows in one spot.
+
+   Ghostty applies the title bar change only to new windows, so the app then offers to
+   reopen your current windows in the same folders. Anything running in them stops, and
+   Ghostty asks first if a command is still running.
+2. Asks for **Accessibility** access, to stack Ghostty's windows in one spot and to move
+   them with the grab bar. Until it's granted, the sidebar shows a notice at the top and
+   the grab bar asks for it instead of moving anything.
 3. Asks to **control Ghostty** (Automation), to read the window list and switch windows.
 
 Grant both in System Settings › Privacy & Security.

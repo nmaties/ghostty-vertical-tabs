@@ -114,6 +114,32 @@ enum Ghostty {
         """)
     }
 
+    /// Opens a new window in each given window's folder, in the given order, then closes the
+    /// originals. Used to apply a title bar change, which Ghostty only gives new windows.
+    /// Ghostty asks before closing a window that still has a command running.
+    static func reopen(windowIDs: [String]) throws {
+        let ids = windowIDs.map { "\"\(escape($0))\"" }.joined(separator: ", ")
+        _ = try run("""
+        tell application id "\(bundleID)"
+            set oldIDs to {\(ids)}
+            repeat with wid in oldIDs
+                set cfg to new surface configuration
+                try
+                    set initial working directory of cfg to working directory of focused terminal of selected tab of window id wid
+                end try
+                new window with configuration cfg
+                delay 0.2
+            end repeat
+            repeat with wid in oldIDs
+                try
+                    close window (window id wid)
+                end try
+            end repeat
+            activate
+        end tell
+        """)
+    }
+
     /// Frame of Ghostty's frontmost on-screen window, in AppKit (bottom-left origin) coordinates.
     static func frontWindowFrame() -> CGRect? {
         guard let pid = runningApp?.processIdentifier,

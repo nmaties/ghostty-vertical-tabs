@@ -114,6 +114,15 @@ struct SidebarView: View {
                         .allowsHitTesting(false)
                 )
                 .help("Drag to move the terminal")
+            // At the top, where it's seen: without it nothing can be moved or stacked.
+            if model.needsAccessibility && !model.needsAutomation {
+                Notice(
+                    title: "Allow Accessibility",
+                    text: "Needed to move the terminal with the grab bar and stack Ghostty's windows. Turn on Ghostty Vertical Tabs in System Settings › Privacy & Security › Accessibility. If it's already on, remove it with – and add it again.",
+                    settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                )
+                Divider()
+            }
             if model.needsAutomation {
                 Notice(
                     title: "Allow access to Ghostty",
@@ -138,13 +147,6 @@ struct SidebarView: View {
                 }
             }
             Spacer(minLength: 0)
-            if model.needsAccessibility && !model.needsAutomation {
-                Notice(
-                    title: "Allow Accessibility",
-                    text: "Needed to stack Ghostty's windows in one spot. Turn on Ghostty Vertical Tabs in System Settings › Privacy & Security › Accessibility.",
-                    settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-                )
-            }
             Divider()
             Button(action: model.newTab) {
                 Label("New Tab", systemImage: "plus")
