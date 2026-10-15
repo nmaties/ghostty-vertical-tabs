@@ -54,9 +54,8 @@ On first launch the app:
 
    Without the title bar the terminal text would touch the window's edges, so the block also
    adds 10 pt of padding. Each padding line is left out if your config already sets that
-   option itself. Ghostty applies the title bar change to new windows, so open a fresh window
-   (or restart Ghostty) afterwards. When you update the app, it brings this block up to date
-   on its next launch.
+   option itself. When you update the app, it brings this block up to date on its next
+   launch.
 
    Ghostty applies the title bar change only to new windows, so the app then offers to
    reopen your current windows in the same folders. Anything running in them stops, and
