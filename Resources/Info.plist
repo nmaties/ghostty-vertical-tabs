@@ -2,25 +2,27 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>
-    <string>Ghostty Vertical Tabs</string>
-    <key>CFBundleDisplayName</key>
-    <string>Ghostty Vertical Tabs</string>
-    <key>CFBundleIdentifier</key>
-    <string>io.github.nmaties.ghostty-vertical-tabs</string>
-    <key>CFBundleExecutable</key>
-    <string>GhosttyVerticalTabs</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>Ghostty Vertical Tabs reads Ghostty's tab list and switches tabs when you click one.</string>
+	<key>CFBundleDisplayName</key>
+	<string>Ghostty Vertical Tabs</string>
+	<key>CFBundleExecutable</key>
+	<string>GhosttyVerticalTabs</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.nmaties.ghostty-vertical-tabs</string>
+	<key>CFBundleName</key>
+	<string>Ghostty Vertical Tabs</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Ghostty Vertical Tabs reads Ghostty's tab list and switches tabs when you click one.</string>
 </dict>
 </plist>

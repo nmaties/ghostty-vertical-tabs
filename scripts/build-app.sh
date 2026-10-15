@@ -31,9 +31,10 @@ BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/Ghostt
 
 APP="build/Ghostty Vertical Tabs.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/GhosttyVerticalTabs"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 codesign --force --options runtime --entitlements Resources/GhosttyVerticalTabs.entitlements --sign "$CODESIGN_IDENTITY" "$APP"
 
 echo "Built $APP"

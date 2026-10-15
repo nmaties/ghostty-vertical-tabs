@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" width="128" height="128" alt="Ghostty Vertical Tabs icon"></p>
+
 # Ghostty Vertical Tabs
 
 A vertical tab sidebar for [Ghostty](https://ghostty.org) on macOS.
@@ -126,6 +128,11 @@ The menu bar icon has:
   Use the sidebar, or `` ⌘` `` to cycle windows.
 - Windows of the same Ghostty instance are all treated as one group of tabs.
 - The sidebar is a separate window, so Mission Control shows it next to Ghostty's windows.
+
+## Icon
+
+The icon is drawn in code by `scripts/make-icon.swift`. Run `swift scripts/make-icon.swift`
+to regenerate `Resources/AppIcon.icns` and `docs/icon.png`.
 
 ## License
 
