@@ -52,8 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
         panel.contentView = ClickThroughHostingView(rootView: SidebarView(model: model))
-        model.onDrag = { [weak self] offset in
-            MainActor.assumeIsolated { self?.drag(by: offset) }
+        model.onDrag = { [weak self] phase in
+            MainActor.assumeIsolated { self?.drag(phase) }
         }
         model.onRenamingChanged = { [weak self] renaming in
             guard let self else { return }
@@ -63,7 +63,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 panel.resignKey()
                 // Hand the keyboard back to the terminal.
-                if let id = model.selectedID { try? Ghostty.activate(windowID: id) }
+                if let id = model.selectedID {
+                    Ghostty.scriptQueue.async { try? Ghostty.activate(windowID: id) }
+                }
             }
         }
 
@@ -164,6 +166,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func tick() {
+        // The drag handler places everything itself while a drag is in progress.
+        if dragStart != nil { return }
         guard Ghostty.runningApp != nil, Ghostty.isFrontmost else {
             if panel.isVisible { panel.orderOut(nil) }
             return
@@ -197,7 +201,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// When a different window gets focus (you switched tabs or opened one), move it onto
-    /// the anchor. When the same window moves or resizes, the anchor follows it.
+    /// the anchor. When the front window moves or resizes, the anchor follows it and every
+    /// window behind it is moved along, so none is left showing at the old spot.
     private func stack(_ window: AXUIElement, at frame: CGRect) -> CGRect {
         defer { lastFront = window }
         let switched = lastFront.map { !CFEqual($0, window) } ?? true
@@ -205,24 +210,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             WindowStacker.move(window, to: anchor)
             return anchor
         }
-        anchor = frame
+        // While our own moves are still landing, the window's frame lags behind the anchor;
+        // that isn't you moving it.
+        if frame != anchor, !mover.isBusy {
+            anchor = frame
+            mover.moveAll(to: frame, except: window)
+        }
         return frame
     }
 
-    private var dragStart: (element: AXUIElement, frame: CGRect)?
+    private let mover = StackMover()
+    private var dragStart: CGRect?
 
-    /// Moves the front terminal window (and the sidebar with it) while the grab bar is dragged.
-    private func drag(by offset: CGSize?) {
-        guard let offset else {
-            dragStart = WindowStacker.focusedWindow()
-            return
+    /// Moves the stacked terminal windows, and the sidebar with them, while the grab bar is dragged.
+    /// The sidebar moves right away; the windows move on a background queue that only ever
+    /// applies the latest position.
+    private func drag(_ phase: DragPhase) {
+        switch phase {
+        case .began:
+            dragStart = anchor ?? WindowStacker.focusedWindow()?.frame
+        case .moved(let offset):
+            guard let dragStart else { return }
+            let frame = dragStart.offsetBy(dx: offset.width, dy: offset.height)
+            anchor = frame
+            mover.moveAll(to: frame)
+            let screen = NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main
+            place(beside: frame, on: screen)
+        case .ended:
+            dragStart = nil
+            if let anchor { mover.moveAll(to: anchor) }
         }
-        guard let dragStart else { return }
-        let frame = dragStart.frame.offsetBy(dx: offset.width, dy: offset.height)
-        WindowStacker.move(dragStart.element, to: frame)
-        anchor = frame
-        let screen = NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main
-        place(beside: frame, on: screen)
     }
 
     private func place(beside window: CGRect, on screen: NSScreen?) {

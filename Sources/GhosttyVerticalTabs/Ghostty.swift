@@ -21,6 +21,10 @@ enum GhosttyError: Error {
 enum Ghostty {
     static let bundleID = "com.mitchellh.ghostty"
 
+    /// Every AppleScript call goes through this queue, so a slow reply from Ghostty
+    /// never freezes the sidebar or a drag.
+    static let scriptQueue = DispatchQueue(label: "ghostty-vertical-tabs.applescript", qos: .userInitiated)
+
     static var runningApp: NSRunningApplication? {
         NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
     }
@@ -140,9 +144,9 @@ enum Ghostty {
         return home.appendingPathComponent("Library/Application Support/com.mitchellh.ghostty/config.ghostty")
     }
 
-    static var hidesTitlebar: Bool {
+    /// Read once and then kept in sync by `setHidesTitlebar`, since the sidebar checks it constantly.
+    nonisolated(unsafe) private(set) static var hidesTitlebar: Bool =
         (try? String(contentsOf: configURL, encoding: .utf8))?.contains(blockStart) ?? false
-    }
 
     /// Adds or removes our block in Ghostty's config. With the titlebar hidden Ghostty opens
     /// every new tab as its own window, which is what the sidebar expects.
@@ -166,6 +170,7 @@ enum Ghostty {
         }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: url, atomically: true, encoding: .utf8)
+        hidesTitlebar = hide
         if runningApp != nil {
             _ = try? run("""
             tell application id "\(bundleID)"
@@ -202,6 +207,7 @@ enum Screen {
 }
 
 /// Moves Ghostty windows with the Accessibility API so every "tab" sits in the same spot.
+/// AXUIElement calls are safe off the main thread, which is where the bulk moves run.
 enum WindowStacker {
     static var isTrusted: Bool { AXIsProcessTrusted() }
 
@@ -216,34 +222,100 @@ enum WindowStacker {
         guard isTrusted, let pid = Ghostty.runningApp?.processIdentifier else { return nil }
         let app = AXUIElementCreateApplication(pid)
         guard let window: AXUIElement = attribute(app, kAXFocusedWindowAttribute),
-              let subrole: String = attribute(window, kAXSubroleAttribute),
-              subrole == kAXStandardWindowSubrole,
-              let positionValue: AXValue = attribute(window, kAXPositionAttribute),
+              isTerminalWindow(window),
+              let frame = frame(of: window)
+        else { return nil }
+        return (window, frame)
+    }
+
+    /// All of Ghostty's terminal windows, front to back.
+    static func terminalWindows() -> [AXUIElement] {
+        guard isTrusted, let pid = Ghostty.runningApp?.processIdentifier else { return [] }
+        let app = AXUIElementCreateApplication(pid)
+        let windows: [AXUIElement] = attribute(app, kAXWindowsAttribute) ?? []
+        return windows.filter(isTerminalWindow)
+    }
+
+    static func frame(of window: AXUIElement) -> CGRect? {
+        guard let positionValue: AXValue = attribute(window, kAXPositionAttribute),
               let sizeValue: AXValue = attribute(window, kAXSizeAttribute)
         else { return nil }
         var origin = CGPoint.zero
         var size = CGSize.zero
         AXValueGetValue(positionValue, .cgPoint, &origin)
         AXValueGetValue(sizeValue, .cgSize, &size)
-        return (window, Screen.toAppKit(CGRect(origin: origin, size: size)))
+        return Screen.toAppKit(CGRect(origin: origin, size: size))
     }
 
-    /// Gives a window the given frame (AppKit coordinates).
+    /// Gives a window the given frame (AppKit coordinates). Skips whatever already matches.
     static func move(_ window: AXUIElement, to frame: CGRect) {
+        let current = self.frame(of: window)
+        if current == frame { return }
         let target = Screen.toAppKit(frame)
         var origin = target.origin
         var size = target.size
-        // Size, then position, then size again: macOS clamps the size to the screen at the old position.
-        if let sizeValue = AXValueCreate(.cgSize, &size), let originValue = AXValueCreate(.cgPoint, &origin) {
+        guard let sizeValue = AXValueCreate(.cgSize, &size), let originValue = AXValueCreate(.cgPoint, &origin) else { return }
+        if current?.size == frame.size {
+            AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, originValue)
+        } else {
+            // Size, then position, then size again: macOS clamps the size to the screen at the old position.
             AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
             AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, originValue)
             AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
         }
     }
 
+    private static func isTerminalWindow(_ window: AXUIElement) -> Bool {
+        (attribute(window, kAXSubroleAttribute) as String?) == kAXStandardWindowSubrole
+    }
+
     private static func attribute<T>(_ element: AXUIElement, _ name: String) -> T? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
         return value as? T
+    }
+}
+
+/// Moves all of Ghostty's terminal windows onto one frame on a background queue.
+/// Requests coalesce: while a move is running, only the latest frame is kept, so a fast
+/// drag never builds up a backlog.
+final class StackMover: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "ghostty-vertical-tabs.stack-mover", qos: .userInteractive)
+    private let lock = NSLock()
+    private var pending: (frame: CGRect, skip: AXUIElement?)?
+    private var running = false
+
+    /// True while moves are queued or running.
+    var isBusy: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return running
+    }
+
+    /// Moves every terminal window to `frame` (AppKit coordinates), except `skip`.
+    func moveAll(to frame: CGRect, except skip: AXUIElement? = nil) {
+        lock.lock()
+        pending = (frame, skip)
+        let start = !running
+        running = true
+        lock.unlock()
+        if start { queue.async { self.drain() } }
+    }
+
+    private func drain() {
+        while true {
+            lock.lock()
+            guard let job = pending else {
+                running = false
+                lock.unlock()
+                return
+            }
+            pending = nil
+            lock.unlock()
+            for window in WindowStacker.terminalWindows() {
+                if let skip = job.skip, CFEqual(window, skip) { continue }
+                WindowStacker.move(window, to: job.frame)
+            }
+        }
     }
 }

@@ -1,5 +1,12 @@
 import SwiftUI
 
+enum DragPhase {
+    case began
+    /// Distance from where the drag started, in AppKit points (y up).
+    case moved(CGSize)
+    case ended
+}
+
 @MainActor
 final class TabsModel: ObservableObject {
     @Published private(set) var tabs: [GhosttyTab] = []
@@ -10,14 +17,16 @@ final class TabsModel: ObservableObject {
 
     /// Called when renaming starts or ends, so the panel can take and give back the keyboard.
     var onRenamingChanged: ((Bool) -> Void)?
-    /// Called while the grab bar is dragged, with the distance from where the drag started
-    /// (AppKit points, y up). nil marks the start of a drag.
-    var onDrag: ((CGSize?) -> Void)?
+    /// Called while the grab bar is dragged.
+    var onDrag: ((DragPhase) -> Void)?
 
     /// Ghostty lists windows front to back, so keep our own first-seen order to stop
     /// the list from reshuffling every time you switch.
     private var order: [String] = []
 
+    private var refreshing = false
+
+    /// Asks Ghostty for its windows in the background and publishes the result.
     func refresh() {
         needsAccessibility = !WindowStacker.isTrusted
         guard Ghostty.runningApp != nil else {
@@ -25,12 +34,26 @@ final class TabsModel: ObservableObject {
             selectedID = nil
             return
         }
-        do {
-            guard let state = try Ghostty.state() else {
-                tabs = []
-                selectedID = nil
-                return
+        guard !refreshing else { return }
+        refreshing = true
+        Ghostty.scriptQueue.async {
+            let result = Result { try Ghostty.state() }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.refreshing = false
+                    self.apply(result)
+                }
             }
+        }
+    }
+
+    private func apply(_ result: Result<GhosttyState?, Error>) {
+        switch result {
+        case .success(nil):
+            tabs = []
+            selectedID = nil
+            needsAutomation = false
+        case .success(let state?):
             let ids = Set(state.tabs.map(\.id))
             order.removeAll { !ids.contains($0) }
             // Ghostty lists front to back, so the newest unseen window comes first; append oldest first.
@@ -41,21 +64,31 @@ final class TabsModel: ObservableObject {
             if next != tabs { tabs = next }
             if selectedID != state.frontWindowID { selectedID = state.frontWindowID }
             needsAutomation = false
-        } catch GhosttyError.notAllowed {
+        case .failure(GhosttyError.notAllowed):
             needsAutomation = true
-        } catch {
+        case .failure:
             // Ghostty can be briefly unscriptable while windows open or close; try again next tick.
+            break
+        }
+    }
+
+    /// Runs a Ghostty command in the background, then refreshes the list.
+    private func perform(_ command: @escaping @Sendable () throws -> Void) {
+        Ghostty.scriptQueue.async {
+            try? command()
+            DispatchQueue.main.async { MainActor.assumeIsolated { self.refresh() } }
         }
     }
 
     func select(_ tab: GhosttyTab) {
-        try? Ghostty.activate(windowID: tab.id)
         selectedID = tab.id
+        let id = tab.id
+        perform { try Ghostty.activate(windowID: id) }
     }
 
     func close(_ tab: GhosttyTab) {
-        try? Ghostty.close(windowID: tab.id)
-        refresh()
+        let id = tab.id
+        perform { try Ghostty.close(windowID: id) }
     }
 
     func beginRename(_ tab: GhosttyTab) {
@@ -64,9 +97,10 @@ final class TabsModel: ObservableObject {
     }
 
     func commitRename(_ tab: GhosttyTab, to title: String) {
-        try? Ghostty.rename(windowID: tab.id, to: title.trimmingCharacters(in: .whitespaces))
+        let id = tab.id
+        let title = title.trimmingCharacters(in: .whitespaces)
         endRename()
-        refresh()
+        perform { try Ghostty.rename(windowID: id, to: title) }
     }
 
     func cancelRename() {
@@ -81,8 +115,8 @@ final class TabsModel: ObservableObject {
 
     func newTab() {
         let directory = tabs.first { $0.id == selectedID }?.directory
-        try? Ghostty.newWindow(directory: directory?.isEmpty == false ? directory : nil)
-        refresh()
+        let dir = directory?.isEmpty == false ? directory : nil
+        perform { try Ghostty.newWindow(directory: dir) }
     }
 }
 
@@ -231,7 +265,7 @@ private struct TabRow: View {
 /// A strip that moves the terminal window when dragged. Ghostty's hidden title bar
 /// can no longer be dragged, so this takes its place.
 private struct DragHandle: NSViewRepresentable {
-    let onDrag: (CGSize?) -> Void
+    let onDrag: (DragPhase) -> Void
 
     func makeNSView(context: Context) -> HandleView {
         let view = HandleView()
@@ -244,7 +278,7 @@ private struct DragHandle: NSViewRepresentable {
     }
 
     final class HandleView: NSView {
-        var onDrag: ((CGSize?) -> Void)?
+        var onDrag: ((DragPhase) -> Void)?
         private var start: NSPoint?
 
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -256,18 +290,20 @@ private struct DragHandle: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             start = NSEvent.mouseLocation
             NSCursor.closedHand.push()
-            onDrag?(nil)
+            onDrag?(.began)
         }
 
         override func mouseDragged(with event: NSEvent) {
             guard let start else { return }
             let now = NSEvent.mouseLocation
-            onDrag?(CGSize(width: now.x - start.x, height: now.y - start.y))
+            onDrag?(.moved(CGSize(width: now.x - start.x, height: now.y - start.y)))
         }
 
         override func mouseUp(with event: NSEvent) {
+            guard start != nil else { return }
             start = nil
             NSCursor.pop()
+            onDrag?(.ended)
         }
     }
 }
