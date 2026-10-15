@@ -30,6 +30,22 @@ open and close windows, and the macOS Accessibility API to move them.
 
 ## Install
 
+Download `GhosttyVerticalTabs-<version>.zip` from the
+[latest release](https://github.com/nmaties/ghostty-vertical-tabs/releases/latest), unzip it,
+move **Ghostty Vertical Tabs.app** to /Applications and open it. Or from a terminal:
+
+```bash
+curl -L -o /tmp/gvt.zip "$(curl -s https://api.github.com/repos/nmaties/ghostty-vertical-tabs/releases/latest | grep -o 'https://[^"]*GhosttyVerticalTabs-[^"]*\.zip' | head -1)"
+ditto -x -k /tmp/gvt.zip /Applications/
+open "/Applications/Ghostty Vertical Tabs.app"
+```
+
+The release build is signed with a Developer ID and notarized by Apple, so it opens without
+a Gatekeeper warning, and the permissions you grant stay valid when you update to a newer
+release.
+
+### Build from source
+
 ```bash
 git clone https://github.com/nmaties/ghostty-vertical-tabs.git
 cd ghostty-vertical-tabs
@@ -67,7 +83,7 @@ On first launch the app:
 
 Grant both in System Settings › Privacy & Security.
 
-### Keeping permissions across rebuilds
+### Keeping permissions across rebuilds (source builds)
 
 macOS ties the Accessibility and Automation permissions to the app's signature. The build
 script signs with a certificate from your Keychain when it finds one ("Developer ID
