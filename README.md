@@ -69,12 +69,20 @@ Grant both in System Settings › Privacy & Security.
 
 ### Keeping permissions across rebuilds
 
-An ad hoc signed build gets a new identity every time you rebuild, and macOS drops its
-permissions. Sign with your own certificate to keep them:
+macOS ties the Accessibility and Automation permissions to the app's signature. The build
+script signs with a certificate from your Keychain when it finds one ("Developer ID
+Application" first, then "Apple Development"), so the permissions keep working across
+rebuilds and reinstalls. It prints which one it used.
+
+Without a certificate it signs ad hoc. Each rebuild then counts as a new app: System
+Settings still shows the old switch as on, but macOS ignores it. Remove the entry with –
+and add it again, or reset it:
 
 ```bash
-CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./scripts/build-app.sh
+sudo tccutil reset Accessibility io.github.nmaties.ghostty-vertical-tabs
 ```
+
+To pick the certificate yourself, set `CODESIGN_IDENTITY`; set it to `-` to force ad hoc.
 
 ## Use
 
