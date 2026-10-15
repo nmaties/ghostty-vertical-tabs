@@ -47,10 +47,16 @@ On first launch the app:
    ```
    # >>> ghostty-vertical-tabs >>>
    macos-titlebar-style = hidden
+   window-padding-x = 10
+   window-padding-y = 10
    # <<< ghostty-vertical-tabs <<<
    ```
 
-   Ghostty applies this to new windows, so open a fresh window (or restart Ghostty) afterwards.
+   Without the title bar the terminal text would touch the window's edges, so the block also
+   adds 10 pt of padding. Each padding line is left out if your config already sets that
+   option itself. Ghostty applies the title bar change to new windows, so open a fresh window
+   (or restart Ghostty) afterwards. When you update the app, it brings this block up to date
+   on its next launch.
 2. Asks for **Accessibility** access, to stack Ghostty's windows in one spot.
 3. Asks to **control Ghostty** (Automation), to read the window list and switch windows.
 

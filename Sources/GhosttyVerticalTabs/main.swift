@@ -59,7 +59,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         buildMenu()
 
         if !WindowStacker.isTrusted { WindowStacker.requestTrust() }
-        if !Ghostty.hidesTitlebar { offerWindowPerTabSetup() }
+        if Ghostty.hidesTitlebar {
+            Ghostty.scriptQueue.async { try? Ghostty.updateBlockIfOutdated() }
+        } else {
+            offerWindowPerTabSetup()
+        }
 
         // Window position is cheap to read, so follow it closely; the tab list goes through AppleScript.
         timers.append(Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -86,7 +90,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Ghostty then opens every new tab as its own window, and the sidebar stacks those windows \
         in one spot and switches between them.
 
-        This adds `macos-titlebar-style = hidden` to \(Ghostty.configURL.path). \
+        This adds `macos-titlebar-style = hidden`, plus 10 pt of padding around the terminal \
+        unless you already set your own, to \(Ghostty.configURL.path). \
         You can undo it from the menu bar icon.
         """
         alert.addButton(withTitle: "Hide Title Bar")

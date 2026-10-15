@@ -154,32 +154,68 @@ enum Ghostty {
     /// every new tab as its own window, which is what the sidebar expects.
     static func setHidesTitlebar(_ hide: Bool) throws {
         let url = configURL
-        var text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        if let start = text.range(of: blockStart), let end = text.range(of: blockEnd, range: start.upperBound..<text.endIndex) {
-            var removeEnd = end.upperBound
-            if removeEnd < text.endIndex, text[removeEnd] == "\n" { removeEnd = text.index(after: removeEnd) }
-            text.removeSubrange(start.lowerBound..<removeEnd)
-        }
+        var text = withoutBlock((try? String(contentsOf: url, encoding: .utf8)) ?? "")
+        // Trim the blank lines the old block leaves behind, so rewriting it doesn't pile them up.
+        while text.hasSuffix("\n\n") || text == "\n" { text.removeLast() }
         if hide {
-            if !text.isEmpty, !text.hasSuffix("\n") { text += "\n" }
-            text += """
-            \(blockStart)
-            # Added by Ghostty Vertical Tabs: no titlebar or tab bar, every tab is a window.
-            macos-titlebar-style = hidden
-            \(blockEnd)
-
-            """
+            let rest = text
+            if !text.isEmpty { text += text.hasSuffix("\n") ? "\n" : "\n\n" }
+            text += block(for: rest)
         }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: url, atomically: true, encoding: .utf8)
         hidesTitlebar = hide
-        if runningApp != nil {
-            _ = try? run("""
-            tell application id "\(bundleID)"
-                if (count of windows) > 0 then perform action "reload_config" on focused terminal of selected tab of front window
-            end tell
-            """)
+        reloadConfig()
+    }
+
+    /// Rewrites our block if an older version of the app wrote it, e.g. before it added padding.
+    static func updateBlockIfOutdated() throws {
+        guard hidesTitlebar, let text = try? String(contentsOf: configURL, encoding: .utf8) else { return }
+        let rest = withoutBlock(text)
+        guard !text.contains(block(for: rest)) else { return }
+        try setHidesTitlebar(true)
+    }
+
+    /// Our block. Without the title bar the terminal text runs right up to the window's edges,
+    /// so it also adds padding, unless the rest of the config already sets its own.
+    private static func block(for rest: String) -> String {
+        var lines = [
+            blockStart,
+            "# Added by Ghostty Vertical Tabs: no titlebar or tab bar, every tab is a window.",
+            "macos-titlebar-style = hidden",
+        ]
+        for key in ["window-padding-x", "window-padding-y"] where !sets(key, in: rest) {
+            lines.append("\(key) = 10")
         }
+        lines.append(blockEnd)
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func sets(_ key: String, in config: String) -> Bool {
+        config.split(separator: "\n").contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.hasPrefix(key) && trimmed.dropFirst(key.count).trimmingCharacters(in: .whitespaces).hasPrefix("=")
+        }
+    }
+
+    private static func withoutBlock(_ text: String) -> String {
+        guard let start = text.range(of: blockStart),
+              let end = text.range(of: blockEnd, range: start.upperBound..<text.endIndex)
+        else { return text }
+        var text = text
+        var removeEnd = end.upperBound
+        if removeEnd < text.endIndex, text[removeEnd] == "\n" { removeEnd = text.index(after: removeEnd) }
+        text.removeSubrange(start.lowerBound..<removeEnd)
+        return text
+    }
+
+    private static func reloadConfig() {
+        guard runningApp != nil else { return }
+        _ = try? run("""
+        tell application id "\(bundleID)"
+            if (count of windows) > 0 then perform action "reload_config" on focused terminal of selected tab of front window
+        end tell
+        """)
     }
 
     private static func escape(_ s: String) -> String {
