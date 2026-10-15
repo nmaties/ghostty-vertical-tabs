@@ -68,6 +68,10 @@ CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./scripts/build
 ## Use
 
 - Click a tab to switch to it. Hover a tab and click **×** to close it.
+- Double-click a tab to rename it. Press Return to save or Esc to cancel. Save an empty
+  name to go back to the title your shell sets.
+- Drag the grab bar at the top of the sidebar to move the terminal. Ghostty's title bar is
+  hidden, so this replaces dragging by the title bar. Resize from the window's edges as usual.
 - **New Tab** opens a Ghostty window in the current tab's folder. `⌘T` in Ghostty works too.
 - The sidebar only shows while Ghostty is the active app, and hides for fullscreen windows.
 

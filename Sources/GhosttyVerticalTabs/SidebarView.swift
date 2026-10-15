@@ -6,6 +6,13 @@ final class TabsModel: ObservableObject {
     @Published private(set) var selectedID: String?
     @Published private(set) var needsAutomation = false
     @Published var needsAccessibility = !WindowStacker.isTrusted
+    @Published private(set) var renamingID: String?
+
+    /// Called when renaming starts or ends, so the panel can take and give back the keyboard.
+    var onRenamingChanged: ((Bool) -> Void)?
+    /// Called while the grab bar is dragged, with the distance from where the drag started
+    /// (AppKit points, y up). nil marks the start of a drag.
+    var onDrag: ((CGSize?) -> Void)?
 
     /// Ghostty lists windows front to back, so keep our own first-seen order to stop
     /// the list from reshuffling every time you switch.
@@ -51,6 +58,27 @@ final class TabsModel: ObservableObject {
         refresh()
     }
 
+    func beginRename(_ tab: GhosttyTab) {
+        renamingID = tab.id
+        onRenamingChanged?(true)
+    }
+
+    func commitRename(_ tab: GhosttyTab, to title: String) {
+        try? Ghostty.rename(windowID: tab.id, to: title.trimmingCharacters(in: .whitespaces))
+        endRename()
+        refresh()
+    }
+
+    func cancelRename() {
+        endRename()
+    }
+
+    private func endRename() {
+        guard renamingID != nil else { return }
+        renamingID = nil
+        onRenamingChanged?(false)
+    }
+
     func newTab() {
         let directory = tabs.first { $0.id == selectedID }?.directory
         try? Ghostty.newWindow(directory: directory?.isEmpty == false ? directory : nil)
@@ -63,6 +91,15 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            DragHandle(onDrag: { model.onDrag?($0) })
+                .frame(height: 22)
+                .overlay(
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.45))
+                        .frame(width: 36, height: 4)
+                        .allowsHitTesting(false)
+                )
+                .help("Drag to move the terminal")
             if model.needsAutomation {
                 Notice(
                     title: "Allow access to Ghostty",
@@ -77,8 +114,12 @@ struct SidebarView: View {
                                 tab: tab,
                                 number: index + 1,
                                 selected: tab.id == model.selectedID,
+                                renaming: tab.id == model.renamingID,
                                 onSelect: { model.select(tab) },
-                                onClose: { model.close(tab) }
+                                onClose: { model.close(tab) },
+                                onRename: { model.beginRename(tab) },
+                                onCommitRename: { model.commitRename(tab, to: $0) },
+                                onCancelRename: { model.cancelRename() }
                             )
                         }
                     }
@@ -114,9 +155,15 @@ private struct TabRow: View {
     let tab: GhosttyTab
     let number: Int
     let selected: Bool
+    let renaming: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
+    let onRename: () -> Void
+    let onCommitRename: (String) -> Void
+    let onCancelRename: () -> Void
     @State private var hovering = false
+    @State private var draft = ""
+    @FocusState private var fieldFocused: Bool
 
     private var folder: String {
         guard !tab.directory.isEmpty else { return "" }
@@ -128,10 +175,26 @@ private struct TabRow: View {
     var body: some View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(tab.title.isEmpty ? "Tab \(number)" : tab.title)
-                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                if renaming {
+                    TextField("Tab name", text: $draft)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold))
+                        .focused($fieldFocused)
+                        .onSubmit { onCommitRename(draft) }
+                        .onExitCommand(perform: onCancelRename)
+                        .onAppear {
+                            draft = tab.title
+                            fieldFocused = true
+                        }
+                        .onChange(of: fieldFocused) { focused in
+                            if !focused { onCancelRename() }
+                        }
+                } else {
+                    Text(tab.title.isEmpty ? "Tab \(number)" : tab.title)
+                        .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 if !folder.isEmpty, !tab.title.hasSuffix(folder) {
                     Text(folder)
                         .font(.system(size: 10))
@@ -158,8 +221,54 @@ private struct TabRow: View {
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture(perform: onSelect)
-        .help(tab.directory)
+        // The single tap fires right away, so switching never waits for a possible double click.
+        .gesture(TapGesture(count: 2).onEnded { if !renaming { onRename() } })
+        .simultaneousGesture(TapGesture().onEnded { if !renaming { onSelect() } })
+        .help("\(tab.directory)\nDouble-click to rename")
+    }
+}
+
+/// A strip that moves the terminal window when dragged. Ghostty's hidden title bar
+/// can no longer be dragged, so this takes its place.
+private struct DragHandle: NSViewRepresentable {
+    let onDrag: (CGSize?) -> Void
+
+    func makeNSView(context: Context) -> HandleView {
+        let view = HandleView()
+        view.onDrag = onDrag
+        return view
+    }
+
+    func updateNSView(_ view: HandleView, context: Context) {
+        view.onDrag = onDrag
+    }
+
+    final class HandleView: NSView {
+        var onDrag: ((CGSize?) -> Void)?
+        private var start: NSPoint?
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .openHand)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            start = NSEvent.mouseLocation
+            NSCursor.closedHand.push()
+            onDrag?(nil)
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let start else { return }
+            let now = NSEvent.mouseLocation
+            onDrag?(CGSize(width: now.x - start.x, height: now.y - start.y))
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            start = nil
+            NSCursor.pop()
+        }
     }
 }
 

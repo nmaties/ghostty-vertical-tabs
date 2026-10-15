@@ -8,7 +8,9 @@ enum DockSide: String {
 
 /// A panel that takes clicks without pulling focus away from Ghostty.
 final class SidebarPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
+    /// Only take the keyboard while a tab is being renamed.
+    var allowsKey = false
+    override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { false }
 }
 
@@ -50,6 +52,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
         panel.contentView = ClickThroughHostingView(rootView: SidebarView(model: model))
+        model.onDrag = { [weak self] offset in
+            MainActor.assumeIsolated { self?.drag(by: offset) }
+        }
+        model.onRenamingChanged = { [weak self] renaming in
+            guard let self else { return }
+            panel.allowsKey = renaming
+            if renaming {
+                panel.makeKey()
+            } else {
+                panel.resignKey()
+                // Hand the keyboard back to the terminal.
+                if let id = model.selectedID { try? Ghostty.activate(windowID: id) }
+            }
+        }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Ghostty Vertical Tabs")
@@ -193,6 +209,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return frame
     }
 
+    private var dragStart: (element: AXUIElement, frame: CGRect)?
+
+    /// Moves the front terminal window (and the sidebar with it) while the grab bar is dragged.
+    private func drag(by offset: CGSize?) {
+        guard let offset else {
+            dragStart = WindowStacker.focusedWindow()
+            return
+        }
+        guard let dragStart else { return }
+        let frame = dragStart.frame.offsetBy(dx: offset.width, dy: offset.height)
+        WindowStacker.move(dragStart.element, to: frame)
+        anchor = frame
+        let screen = NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main
+        place(beside: frame, on: screen)
+    }
+
     private func place(beside window: CGRect, on screen: NSScreen?) {
         let bounds = screen?.visibleFrame ?? window
         let fitsLeft = window.minX - gap - width >= bounds.minX
@@ -210,8 +242,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         if !panel.isVisible {
-            model.refresh()
+            // Show right away with the last known tabs; the AppleScript round trip comes after.
             panel.orderFrontRegardless()
+            DispatchQueue.main.async { [weak self] in self?.model.refresh() }
         }
     }
 }

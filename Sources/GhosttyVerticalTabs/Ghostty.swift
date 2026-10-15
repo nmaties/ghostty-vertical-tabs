@@ -86,6 +86,16 @@ enum Ghostty {
         """)
     }
 
+    /// Overrides the window's title. An empty title goes back to the one the shell sets.
+    static func rename(windowID: String, to title: String) throws {
+        let oneLine = title.replacingOccurrences(of: "\n", with: " ")
+        _ = try run("""
+        tell application id "\(bundleID)"
+            perform action "set_tab_title:\(escape(oneLine))" on focused terminal of selected tab of window id "\(escape(windowID))"
+        end tell
+        """)
+    }
+
     static func newWindow(directory: String?) throws {
         let setDir = directory.map { "set initial working directory of cfg to \"\(escape($0))\"" } ?? ""
         _ = try run("""
